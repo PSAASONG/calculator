@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Calculator — By Pszya</title>
+<style>
+  :root{
+    --bg:#000;
+    --panel:#0b0b0b;
+    --btn:#2f2f2f;
+    --btn-pressed:#424242;
+    --accent:#f76c1b; /* orange equals */
+    --muted:#9b9b9b;
+    --white:#ffffff;
+    --gap:18px;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial}
+  .app{
+    min-height:100vh;
+    display:flex;
+    align-items:flex-end;
+    justify-content:center;
+    padding:28px 20px;
+    box-sizing:border-box;
+  }
+  .calc{
+    width:100%;
+    max-width:420px;
+    background:transparent;
+  }
+  .display{
+    height:170px;
+    display:flex;
+    flex-direction:column;
+    justify-content:flex-end;
+    align-items:flex-end;
+    color:var(--white);
+    padding:22px 18px;
+    box-sizing:border-box;
+    font-size:48px;
+    letter-spacing:0.02em;
+    overflow:hidden;
+  }
+  .sub{
+    color:var(--muted);
+    font-size:14px;
+    margin-bottom:8px;
+    opacity:0.9;
+    white-space:nowrap;
+  }
+  .value{
+    width:100%;
+    word-break:break-all;
+    text-align:right;
+  }
+
+  .pad{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:14px;
+    padding:12px 6px 28px;
+    box-sizing:border-box;
+  }
+
+  /* circular buttons */
+  .key{
+    height:84px;
+    border-radius:50%;
+    background:linear-gradient(180deg,var(--btn),#222);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:var(--white);
+    font-size:22px;
+    user-select:none;
+    box-shadow:0 2px 0 rgba(0,0,0,0.6) inset;
+    transition:transform .08s ease, background .08s;
+  }
+  .key:active{ transform:translateY(2px); background:var(--btn-pressed); }
+
+  .key.small{
+    height:64px;
+    font-size:20px;
+  }
+
+  .op{
+    background:transparent;
+    color:var(--muted);
+    box-shadow:none;
+  }
+  .op .key{ background:transparent; box-shadow:none; color:var(--muted); height:84px; border-radius:50%; }
+  .accent{
+    background:var(--accent);
+    color:white;
+    font-weight:600;
+    box-shadow:0 6px 0 rgba(0,0,0,0.25);
+  }
+
+  /* wide buttons (for 00 or 0 if needed) */
+  .span-2{ grid-column: span 2; }
+
+  /* icons (simple) */
+  .icon-back::before{
+    content: "⌫";
+    font-size:20px;
+  }
+
+  /* responsive */
+  @media (max-width:420px){
+    .display{ height:150px; font-size:40px; }
+    .key{ height:72px; }
+  }
+  @media (max-width:360px){
+    .display{ height:130px; font-size:34px; }
+    .key{ height:64px; font-size:18px; }
+  }
+
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="calc" role="application" aria-label="Calculator">
+    <div class="display" id="display">
+      <div class="sub" id="sub"> </div>
+      <div class="value" id="value">0</div>
+    </div>
+
+    <div class="pad" id="pad">
+      <!-- Row 1 -->
+      <div class="key op" data-action="ac">AC</div>
+      <div class="key op" data-action="percent">%</div>
+      <div class="key op" data-action="back"><span class="icon-back"></span></div>
+      <div class="key op" data-action="divide">÷</div>
+
+      <!-- Row 2 -->
+      <div class="key" data-number="7">7</div>
+      <div class="key" data-number="8">8</div>
+      <div class="key" data-number="9">9</div>
+      <div class="key op" data-action="multiply">×</div>
+
+      <!-- Row 3 -->
+      <div class="key" data-number="4">4</div>
+      <div class="key" data-number="5">5</div>
+      <div class="key" data-number="6">6</div>
+      <div class="key op" data-action="minus">−</div>
+
+      <!-- Row 4 -->
+      <div class="key" data-number="1">1</div>
+      <div class="key" data-number="2">2</div>
+      <div class="key" data-number="3">3</div>
+      <div class="key op" data-action="plus">+</div>
+
+      <!-- Row 5 -->
+      <div class="key" data-number="00">00</div>
+      <div class="key" data-number="0">0</div>
+      <div class="key" data-action="comma">,</div>
+      <div class="key accent" data-action="equals">=</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const display = document.getElementById('value');
+  const sub = document.getElementById('sub');
+  let current = '0';      // shown value (with comma)
+  let expression = '';    // internal expression (with dot for decimal)
+  let lastWasOp = false;
+  let justEvaluated = false;
+
+  function show(v){
+    display.textContent = v;
+  }
+  function toInternal(s){
+    return s.replace(/,/g, '.');
+  }
+  function toDisplay(s){
+    // convert dot to comma for display
+    if(s === '') return '0';
+    return s.replace(/\./g, ',');
+  }
+
+  function pushNumber(n){
+    if(justEvaluated){
+      // start new after evaluate
+      expression = '';
+      current = '0';
+      justEvaluated = false;
+    }
+    if(n === '00'){
+      if(current === '0') {
+        current = '0';
+      } else {
+        current = current + '00';
+      }
+    } else {
+      if(current === '0') current = n;
+      else current = current + n;
+    }
+    lastWasOp = false;
+    show(toDisplay(current));
+  }
+
+  function pushComma(){
+    if(justEvaluated){
+      current = '0';
+      expression = '';
+      justEvaluated = false;
+    }
+    if(current.indexOf(',') === -1){
+      current = current + ',';
+      show(current);
+    }
+  }
+
+  function pushOperator(opSymbol){
+    // convert current to internal and push to expression
+    if(lastWasOp){
+      // change last operator
+      expression = expression.slice(0, -1) + opSymbol;
+    } else {
+      expression += toInternal(current) + opSymbol;
+    }
+    sub.textContent = expression.replace(/\./g, ',');
+    current = '0';
+    lastWasOp = true;
+    justEvaluated = false;
+    show(toDisplay(current));
+  }
+
+  function applyPercent(){
+    // treat current as percentage of previous or just divide current by 100
+    const val = parseFloat(toInternal(current) || '0');
+    const res = val / 100;
+    current = String(res).replace('.', ',');
+    show(toDisplay(current));
+  }
+
+  function backspace(){
+    if(justEvaluated){
+      current = '0';
+      expression = '';
+      justEvaluated = false;
+      show(current);
+      sub.textContent = '';
+      return;
+    }
+    if(current.length > 1){
+      current = current.slice(0, -1);
+    } else {
+      current = '0';
+    }
+    show(toDisplay(current));
+  }
+
+  function clearAll(){
+    current = '0';
+    expression = '';
+    sub.textContent = '';
+    show(current);
+    lastWasOp = false;
+    justEvaluated = false;
+  }
+
+  function evaluateExpr(){
+    // finalize expression
+    if(!lastWasOp){
+      expression += toInternal(current);
+    } else {
+      // remove trailing operator
+      expression = expression.slice(0, -1);
+    }
+    // sanitize: allow digits, ., + - * /, parentheses (we don't use parentheses)
+    const safe = expression.replace(/[^0-9+\-*/.]/g, '');
+    let result = '0';
+    try{
+      // eval with Function to avoid some global scope access
+      // Important: expression came from UI only; still sanitize above.
+      result = Function('"use strict"; return (' + safe + ')')();
+      if(!isFinite(result) || isNaN(result)) throw new Error('invalid');
+    }catch(e){
+      show('Error');
+      sub.textContent = '';
+      expression = '';
+      current = '0';
+      justEvaluated = true;
+      return;
+    }
+    // format result: keep up to 12 significant digits, use dot internally then convert
+    const rounded = Number(result.toPrecision(12));
+    current = String(rounded).replace('.', ',');
+    show(toDisplay(current));
+    sub.textContent = '';
+    expression = '';
+    justEvaluated = true;
+    lastWasOp = false;
+  }
+
+  // wire buttons
+  document.getElementById('pad').addEventListener('click', (e) => {
+    const t = e.target.closest('.key');
+    if(!t) return;
+    const num = t.getAttribute('data-number');
+    const action = t.getAttribute('data-action');
+
+    if(num !== null){
+      pushNumber(num);
+      return;
+    }
+    if(!action) return;
+
+    switch(action){
+      case 'comma': pushComma(); break;
+      case 'ac': clearAll(); break;
+      case 'back': backspace(); break;
+      case 'percent': applyPercent(); break;
+      case 'divide': pushOperator('/'); break;
+      case 'multiply': pushOperator('*'); break;
+      case 'minus': pushOperator('-'); break;
+      case 'plus': pushOperator('+'); break;
+      case 'equals': evaluateExpr(); break;
+      default: break;
+    }
+  });
+
+  // keyboard support (basic)
+  window.addEventListener('keydown', (e) => {
+    if(e.key >= '0' && e.key <= '9'){ pushNumber(e.key); }
+    else if(e.key === 'Enter' || e.key === '='){ evaluateExpr(); }
+    else if(e.key === ',' || e.key === '.') { pushComma(); }
+    else if(e.key === '+' || e.key === '-' || e.key === '*' || e.key === '/') { pushOperator(e.key); }
+    else if(e.key === 'Backspace') { backspace(); }
+    else if(e.key === 'Escape') { clearAll(); }
+    // prevent default on handled keys to keep snappy feel
+  });
+
+  // initial
+  show(current);
+})();
+</script>
+</body>
+</html>
